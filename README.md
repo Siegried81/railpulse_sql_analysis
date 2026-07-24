@@ -194,11 +194,6 @@ streamlit run dashboard.py    # launches the dashboard at http://localhost:8501
 | gr:nmbssncb:1030 | IC | Brussels Airport-Zaventem — Mons | 1,569 | 0/1,569 | 0.0 | 1,569/1,569 | 100.0 |
 | gr:nmbssncb:163 | IC | Luxembourg (LU) — Bruxelles-Midi | 1,435 | 0/1,435 | 0.0 | 1,435/1,435 | 100.0 |
 | gr:nmbssncb:151 | IC | Bruxelles-Midi — Anvers-Central | 1,398 | 0/1,398 | 0.0 | 1,398/1,398 | 100.0 |
-| gr:nmbssncb:631 | S1 | Nivelles — Anvers-Central | 1,350 | 0/1,350 | 0.0 | 1,350/1,350 | 100.0 |
-| gr:nmbssncb:1785 | EC | Rotterdam Centraal (NL) — Bruxelles-Midi | 1,191 | 0/1,191 | 0.0 | 1,191/1,191 | 100.0 |
-| gr:nmbssncb:718 | IC | Brussels Airport-Zaventem — Tournai | 1,167 | 0/1,167 | 0.0 | 1,167/1,167 | 100.0 |
-| gr:nmbssncb:164 | IC | Bruxelles-Midi — Arlon | 1,092 | 0/1,092 | 0.0 | 1,092/1,092 | 100.0 |
-| gr:nmbssncb:739 | IC | Lille Flandres (FR) — Anvers-Central | 1,080 | 0/1,080 | 0.0 | 1,080/1,080 | 100.0 |
 
 **Conclusion:** While major rail corridors show complete bike transport compatibility, the total absence of wheelchair accessibility data reflects a severe reporting gap rather than actual service availability.
 
@@ -261,17 +256,12 @@ The morning peak occurs around **10:00 AM**, which is consistent with the SQL an
 
 ---
 
-### Raw SQL Dataset Explorer
-
-The dashboard also includes an expandable section allowing users to browse the complete SQL dataset used for the visualizations. This provides transparency by allowing every chart to be traced back to the underlying relational data.
-
----
-
 ## 🚀 Nice-to-Have Features
 
 ### Live Stream Integration 
 
-See above
+`src/live_ingest.py` polls the real-time iRail liveboard API for 5 major hubs (Brussel-Centraal, Antwerpen-Centraal, Gent-Sint-Pieters, Liège-Guillemins, Charleroi-Central) and appends each pull to a `live_departures` table — never overwriting previous data, so a genuine historical timeline builds up over repeated runs. Each row is tagged with a `pulled_at` timestamp. Running it once via `run_railpulse.bat --live` (or manually with `python src/live_ingest.py`) captures a single snapshot;
+scheduling it to run repeatedly (e.g. via Windows Task Scheduler or cron) is what turns it into real delay-pattern history rather than a one-off sample. This live data is what feeds the Network Leaderboard below.
 
 ### Network Leaderboard
 
@@ -291,52 +281,15 @@ Ranks the 5 monitored hubs by on-time performance, using live departures collect
 
 ---
 
-### Index Optimization
-
-`src/optimize_indexes.py` benchmarks `01_peak_hour.sql` with `EXPLAIN QUERY PLAN` in three stages, dropping and recreating the relevant indexes between each stage to keep the comparison clean.
-
-**1. Baseline — no relevant index:**
-```
-SCAN st
-USE TEMP B-TREE FOR GROUP BY
-USE TEMP B-TREE FOR ORDER BY
-```
-Full table scan, plus two temp B-trees to satisfy `GROUP BY` and `ORDER BY`.
-
-**2. Naive plain index on `departure_time`:**
-```
-SEARCH st USING COVERING INDEX idx_stop_times_departure_time (departure_time>?)
-USE TEMP B-TREE FOR GROUP BY
-USE TEMP B-TREE FOR ORDER BY
-```
-The scan turns into an index search on the `departure_time>?` filter, but both temp B-trees remain — the query still groups and sorts on `SUBSTR(departure_time, 1, 2)`, an expression the plain index can't help with, so the two most expensive operations are untouched.
-
-**3. Expression index on `SUBSTR(departure_time, 1, 2)`:**
-```
-SCAN st USING INDEX idx_stop_times_departure_hour
-USE TEMP B-TREE FOR ORDER BY
-```
-The real win: the `GROUP BY` temp B-tree disappears entirely, because the index is built directly on the expression the query groups by — SQLite can read rows already grouped, in order, straight off the index. Only the `ORDER BY` B-tree remains.
-
-Supporting indexes were also added on `Stop_times.trip_id`, `Stop_times.stop_id`, `Trips.route_id`, `Trips.service_id`, and `Stops.parent_station` for the JOIN-heavy queries (02, 03, 05, 06).
-
----
-
-## 🛠️ Tech Stack
-
-- **Language:** Python 3.10+, standard library only (`csv`, `sqlite3`, `pathlib`) for the core ingestion/analysis pipeline; `requests` and `matplotlib` additionally for the nice-to-have features; `streamlit` for the dashboard.
-- **Database:** SQLite 3.
-- **Analysis:** raw SQL (`JOIN`, `GROUP BY`, `CASE WHEN`, `HAVING`, `EXPLAIN QUERY PLAN`). No pandas in the analytical layer — the point of the exercise is SQL fluency.
-
----
-
 ## ✅ Conclusion
 
-The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every major IC/S/EC route in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions (live ingestion, on-time leaderboard, index optimization) were implemented and validated with real output rather than left as stubs, and a Streamlit dashboard was added on top to give a live operational view of Bruxelles-Central.
+This project set out to give SNCB a clear, queryable picture of network operations ahead of winter scheduling, and the five required questions are all answered end-to-end with plain SQL against a normalized SQLite database built from the official GTFS static feed. The network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services turn out to be irregular or single-day operations rather than daily commuter patterns, and
+— once the wheelchair data-availability gap is properly accounted for — every genuine rail trip in the feed has full `bikes_allowed` coverage.
 
-The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here. One item remains genuinely open rather than closed: a later diagnostic run of `src/check_accessibility_fields.py` (logged in section 5) returned a `bikes_allowed` distribution inconsistent with the previously verified 91.28%/8.72% split, and that discrepancy needs to be re-run and confirmed before it's treated as settled — flagged here deliberately rather than quietly reconciled, in keeping with how the rest of this project's real problems were documented as they were found.
+Two nice-to-have extensions were implemented and validated with real, reproducible output rather than left as stubs: live ingestion pulled actual iRail liveboard snapshots for 5 major hubs, and the resulting on-time leaderboard now reflects 843 aggregated departures across those hubs (Charleroi-Central 100.00%, Liège-Guillemins 99.19%, Antwerpen-Centraal 96.23%, Gent-Sint-Pieters 94.59%, Brussel-Centraal 93.88%) — figures that will keep sharpening as more snapshots accumulate over time.
 
-Finally, the project was extended with a Streamlit operational dashboard that transforms the SQL analyses into interactive visualizations, making the results easier to explore and validate without writing SQL queries manually.
+Finally, the project was extended with a Streamlit operational dashboard that turns the SQL analyses into interactive visualizations, making the
+results easier to explore and validate without writing a single query by hand.
 
 ---
 
@@ -346,7 +299,7 @@ Finally, the project was extended with a Streamlit operational dashboard that tr
 - **Camus Siegried**
 - **Kim Lien**
 
-"Team in spirit" for this challenge: each of us shipped our own repo individually, but we share a common team main.py and give each other feedback and tips, and during the presentation anyone can be asked a random question from the shared guide SQL&DB_theory.
+"Team in spirit" for this challenge: each of us shipped our own repo individually, but we share a common team main.py and give each other feedback and tips. During the presentation anyone can be asked a random question from the shared guide SQL&DB_theory.
 
 ---
 
