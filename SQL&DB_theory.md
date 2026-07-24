@@ -1,9 +1,5 @@
 # SQL & DB Theory — RailPulse Study Guide
 
-> Team study guide for the RailPulse project (SNCB/iRail GTFS analysis). Written for interview prep — each learner may be asked one of these questions at random during the presentation.
-
----
-
 ## 1. General Database Paradigms
 
 ### Q1. What's the difference between an SQL and a NoSQL database?
@@ -233,57 +229,3 @@ WHERE rl.rn = 1;
 **2. Temporary/materialized table** — if this "latest log per customer" result is reused by several downstream queries, compute it once, index it, and join against it repeatedly instead of recalculating it every time.
 
 **3. Supporting index** — add a composite index on `logs(customer_id, date DESC)` so the database can seek the latest row per customer directly instead of scanning and sorting.
-
----
-
-## Bonus: Execution Plans & Index Types
-
-### What is an execution plan?
-
-An execution plan is what the query optimizer shows when asked how it *actually* intends to run a query — which tables it scans or seeks, which join algorithm it picks (nested loop, hash join), whether it needs a temporary sort structure, etc. In SQLite:
-
-```sql
-EXPLAIN QUERY PLAN
-SELECT ...
-```
-
-RailPulse used this directly to confirm that an expression index removed an unnecessary temporary B-tree from the `GROUP BY` in `01_peak_hour.sql` — going from a full table scan + sort, down to a direct index-driven aggregation.
-
-### Clustered vs non-clustered index (general SQL concept)
-
-- **Clustered index**: determines the physical storage order of table rows — only one per table (in engines that support the concept, e.g. SQL Server).
-- **Non-clustered index**: a separate lookup structure pointing back to the row's location — a table can have several.
-
-SQLite doesn't expose "clustered index" as a distinct concept the way SQL Server does, but a table declared with an `INTEGER PRIMARY KEY` behaves similarly, since that column *is* the underlying rowid the table is physically organized by.
-
----
-
-## SQLite Here vs. PostgreSQL in Production
-
-It's worth being able to defend *why* RailPulse uses SQLite deliberately, and *when* that choice would stop making sense — this is a very common follow-up question.
-
-### "SQLite is fine here because..."
-
-- **Single writer, one machine.** The GTFS static ingestion (`main.py`) and the SQL analyses run as a single local process at a time — there's no scenario in this project where multiple processes fight over a write lock.
-- **Read-heavy, not write-heavy.** Once the GTFS files are ingested, the workload is almost entirely `SELECT` queries (the five core analyses, the leaderboard, the index experiments). SQLite handles unlimited concurrent *readers* perfectly well.
-- **Zero infrastructure overhead.** No server to install, configure, or keep running — the whole database is one `.db` file that lives in `data/`, gets committed/ignored like any other artifact, and works identically on every teammate's laptop. For a time-boxed bootcamp project, this removes an entire category of setup problems.
-- **Dataset size is modest.** GTFS static data for one operator (SNCB) — tens/hundreds of thousands of rows in tables like `stop_times` — is comfortably within what SQLite handles fast, even with the added `live_departures` table from the iRail polling script.
-- **Portability for grading/demo.** A single file is trivial to hand over, version, or reset — ideal for a deliverable that needs to be cloned and run by someone else (teammates, evaluators) with minimal friction.
-
-### "In production we'd move to PostgreSQL because..."
-
-- **Real concurrent writers.** The moment `live_ingest.py`'s polling logic needs to run continuously *and* be hit by multiple scrapers, dashboards, or API consumers writing at the same time (the "50 scrapers" scenario), SQLite's single-writer-at-a-time model becomes the bottleneck, not the disk or the CPU.
-- **Client-server architecture.** PostgreSQL runs as a proper server multiple applications can connect to over the network — a FastAPI backend, a scheduled ingestion job, and an analytics dashboard could all talk to the *same* live database simultaneously, which a single SQLite file on one machine can't safely support.
-- **MVCC concurrency.** PostgreSQL's Multi-Version Concurrency Control lets readers and writers — and multiple writers — proceed without blocking each other on a file-level lock, while still enforcing ACID.
-- **Production-grade features.** Role-based access control, replication, point-in-time recovery/backups, connection pooling, and horizontal read scaling (replicas) are all first-class in PostgreSQL and effectively absent in SQLite.
-- **Data volume growth.** If RailPulse expanded to cover multiple operators, longer historical retention of `live_departures`, or real-time delay tracking at national scale, table sizes and write throughput would eventually outgrow what a single embedded file handles comfortably.
-
-**The honest framing for the interview:** SQLite wasn't a limitation we worked around — it was the *correct* engineering choice for this project's actual constraints (single dev machine, mostly-read analytical workload, easy grading/handoff). The migration to PostgreSQL is a well-understood, low-risk next step *if and only if* the concurrency or scale requirements actually change — not a fix for something broken today.
-
----
-
-## Team Interview Tips
-
-- Always tie the answer back to a concrete RailPulse example — it shows real understanding, not memorization.
-- Mention ACID, normalization, and SARGability whenever query performance or data integrity comes up — these are the concepts most likely to be probed further.
-- Know the difference between "SQLite is fine here because..." and "in production we'd move to PostgreSQL because..." — this project deliberately chose SQLite for its scope, not out of ignorance of its limits.
