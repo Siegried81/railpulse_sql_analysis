@@ -25,13 +25,17 @@ I built this project to dig into the operational reality of the Belgian National
 8. [Tech Stack](#️-tech-stack)
 9. [Conclusion](#-conclusion)
 10. [Contributors](#-contributors)
-11. [Author](#-author)
+11. [Timeline](#️-timeline)
+12. [Personal Situation](#-personal-situation)
+13. [Author](#-author)
 
 ---
 
 ## 📋 Project Description
 
 This project started from a fictional mission brief: I'm playing the role of a data consultant at **RailPulse**, hired by the Belgian National Railway (SNCB/NMBS) to give them a clear picture of operational performance ahead of winter scheduling — where the bottlenecks are, which hours and platforms are under the most pressure, and how well the network's amenity data (wheelchair access, bike storage) actually holds up when you query it for real.
+
+The project is built entirely on official SNCB/NMBS static GTFS data, ingested into a normalized SQLite database with enforced foreign keys, and analyzed exclusively through raw SQL — `JOIN`, `GROUP BY`, `CASE WHEN`, and `HAVING` — with Python used only for ingestion and orchestration, never for filtering or aggregating the data itself. On top of the five required analytical questions, the project adds a real-time layer (live iRail liveboard polling), a comparative on-time leaderboard across 5 major hubs, and a Streamlit dashboard so the results can be explored interactively rather than only read as static tables.
 
 ---
 
@@ -282,6 +286,14 @@ Ranks the 5 monitored hubs by on-time performance, using live departures collect
 
 ---
 
+## 🛠️ Tech Stack
+
+- **Language:** Python 3.10+, standard library only (`sqlite3`, `pathlib`) for the core ingestion/analysis pipeline; `requests` and `matplotlib` additionally for the nice-to-have features; `streamlit` for the dashboard.
+- **Database:** SQLite 3.
+- **Analysis:** raw SQL (`JOIN`, `GROUP BY`, `CASE WHEN`, `HAVING`). No pandas in the analytical layer — the point of the exercise is SQL fluency.
+
+---
+
 ## ✅ Conclusion
 
 This project set out to give SNCB a clear, queryable picture of network operations ahead of winter scheduling, and the five required questions are all answered end-to-end with plain SQL against a normalized SQLite database built from the official GTFS static feed. The network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services turn out to be irregular or single-day operations rather than daily commuter patterns, and
@@ -301,6 +313,25 @@ results easier to explore and validate without writing a single query by hand.
 - **Kim Lien**
 
 "Team in spirit" for this challenge: each of us shipped our own repo individually, but we share a common team main.py and give each other feedback and tips. During the presentation anyone can be asked a random question from the shared guide SQL&DB_theory.
+
+---
+
+## 🗓️ Timeline
+
+This was a 4-day BeCode bootcamp learning challenge, deadline **24/07/2026, 5:00 PM**.
+
+| Day | Focus |
+| --- | --- |
+| Day 1 | Read the SNCB GTFS documentation, designed the normalized schema and ERD, set up the repository and ingestion pipeline. |
+| Day 2 | Built and validated `main.py` ingestion against the real GTFS static feed, resolved schema conflicts, wrote the first analytical SQL queries. |
+| Day 3 | Finalized all 5 core analytical queries, added the nice-to-have live ingestion loop and on-time leaderboard, investigated and resolved data-quality questions (e.g. the `bikes_allowed` bus-vs-train split). |
+| Day 4 | Built the Streamlit dashboard, polished the README, prepared for the 5-minute team feedback presentation and Q&A on the shared SQL & DB theory guide. |
+
+---
+
+## 🙋 Personal Situation
+
+Building RailPulse taught me a lot about turning a messy public data source into something genuinely queryable — designing a normalized schema from raw GTFS files and enforcing real foreign keys was a unique challenge. The toughest hurdles were spending extra time finding the right trick or logic to solve questions 4 and 5, and pulling live samples for 5 hubs. I implemented the task scheduler at the very end, so the data hasn't been running long yet. If I were to extend this project further, I would optimize it and add automated tests for the SQL outputs so that schema or data changes are caught immediately rather than during a manual review.
 
 ---
 
