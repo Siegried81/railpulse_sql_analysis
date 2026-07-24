@@ -1,5 +1,5 @@
 @echo off
-cd /d "D:\Users\Siegried\Desktop\Becode\railpulse_sql_analysis_test"
+cd /d "D:\Users\Siegried\Desktop\Becode\railpulse_sql_analysis"
 
 call .venv\Scripts\activate.bat
 

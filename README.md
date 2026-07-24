@@ -45,10 +45,12 @@ Along the way I hit (and fixed) a few real problems worth being upfront about: a
 
 ```
 railpulse_sql_analysis/
-├── data/
+├── data/           # gitignored
 ├── docs/
-│   ├── ERD.png
-│   └── network_leaderboard.png
+│   ├── dashboard_overview.png
+│   ├── dashboard_chart.png
+│   ├── network_leaderboard.png
+│   └── ERD.png
 ├── sql/
 │   ├── 01_peak_hour.sql
 │   ├── 02_platform_bottlenecks.sql
@@ -58,7 +60,7 @@ railpulse_sql_analysis/
 │   └── 06_bikes_allowed_by_route.sql
 ├── src/
 │   ├── run_queries.py
-│   ├── check_accessibility_fields.py
+│   ├── check_accessibility.py
 │   ├── live_ingest.py
 │   ├── fix_station_names.py
 │   ├── network_leaderboard.py
@@ -206,6 +208,23 @@ The vast majority of `service_id`s in the feed are one-off or irregular patterns
 
 **⚠️ Data limitation, not a real finding:** `trips.wheelchair_accessible` is empty (not even `0`) for all 134,809 trips in this feed, confirmed via `src/check_accessibility_fields.py`. SNCB does not publish accessibility info in this static feed, so `wheelchair_accessible_pct = 0.0%` is a data-availability artifact — it does not mean 0% of the network is actually wheelchair-accessible.
 
+**Diagnostic script output — `src/check_accessibility_fields.py`:**
+
+```
+== trips.wheelchair_accessible value distribution ==
+(None, 134809)
+
+== stops.wheelchair_boarding value distribution ==
+(None, 2895)
+
+== trips.bikes_allowed value distribution ==
+(None, 11758)
+```
+
+`wheelchair_accessible` and `wheelchair_boarding` confirm what's already documented: entirely unpublished across every trip and every stop.
+
+**⚠️ Open discrepancy — not yet resolved:** this run's `bikes_allowed` distribution shows only a single group, `(None, 11758)`, whereas the figures documented earlier in this section (and in section 6) were confirmed against a three-way split: `1` → 123,051 trips (91.28%), blank → 11,758 (8.72%), `2` → 2 trips — totaling ~134,811, consistent with the 134,809 total trips. A single-group result of 11,758 accounts for only the *blank* share and is missing the ~123,051 trips flagged `1`. This suggests either the database was re-ingested with a regression on this column, or the terminal output above was truncated before copying. **The `bikes_allowed_pct` / `either_amenity_pct` figures elsewhere in this README are left as the previously verified 91.28%/8.72% split until this is re-run and confirmed** — this diagnostic run is logged here for transparency, not treated as the new source of truth.
+
 | route_short_name | route_long_name | total_trips | wheelchair_accessible_pct | bikes_allowed_pct | either_amenity_pct |
 | --- | --- | --- | --- | --- | --- |
 | IC | Anvers-Central — Charleroi-Central | 3,081 | 0.0% | 100.0% | 100.0% |
@@ -259,13 +278,52 @@ Network-wide (all 134,809 trips):
 
 ---
 
+---
+
 ## 🖥️ Dashboard
 
-`dashboard.py` is a Streamlit app focused on Bruxelles-Central operations, launched via `streamlit run dashboard.py` (or automatically by `run_railpulse.bat`) and served at **http://localhost:8501**. It shows:
+A Streamlit dashboard was built to provide a quick operational overview of **Bruxelles-Central** directly from the SQLite database.
 
-- Total scheduled stops, unique trips, and unique routes touching Bruxelles-Central / Brussel-Centraal
-- A departures-by-hour bar chart
-- An expandable raw data table with the full joined query result (`stop_times` × `stops` × `trips`)
+The dashboard is automatically launched at the end of `run_railpulse.bat` and reads the same database used by all SQL analyses.
+
+It provides:
+
+- Overall network KPIs
+- Interactive departure distribution by hour
+- SQL-backed raw data explorer
+- Direct visualization of the GTFS operational dataset
+
+### Dashboard Overview
+
+The landing page summarizes the station activity using three key performance indicators.
+
+- **Total Scheduled Stops**
+- **Unique Trips Tracked**
+- **Associated Routes**
+
+These values are calculated directly from the normalized GTFS database.
+
+![Dashboard Overview](docs/dashboard_overview.png)
+
+---
+
+### Schedule Overview
+
+The dashboard also visualizes the number of scheduled departures for every hour of the day.
+
+This chart immediately highlights the busiest operating periods across the station.
+
+The morning peak occurs around **10:00 AM**, which is consistent with the SQL analysis presented earlier in this report.
+
+![Departures by Hour](docs/dashboard_chart.png)
+
+---
+
+### Raw SQL Dataset Explorer
+
+The dashboard also includes an expandable section allowing users to browse the complete SQL dataset used for the visualizations.
+
+This provides transparency by allowing every chart to be traced back to the underlying relational data.
 
 ---
 
@@ -302,18 +360,6 @@ Supporting indexes were also added on `Stop_times.trip_id`, `Stop_times.stop_id`
 
 ---
 
-## 🔁 What Changed From the Earlier Draft
-
-The project originally had several ingestion scripts pointed at two incompatible schemas:
-
-- Early `ingest.py` / `ingest_single.py` / `scaled_ingest.py` (now removed) called the iRail **live liveboard API** and wrote into a hand-rolled `stations / vehicles / departures` schema.
-- `src/ingest_gtfs.py` loaded the **static GTFS files** into a PascalCase schema (`Agency`, `Routes`, `Trips`, ...).
-- Root `main.py` loads the same static GTFS files into a lowercase, canonical schema — this is the schema all of `sql/01…06` actually query against, and the one used by `run_railpulse.bat`.
-
-`main.py` is now the single source of truth for ingestion. `src/ingest_gtfs.py` is kept in the repo for reference but is not called by the pipeline; it is a candidate for deletion in a future cleanup.
-
----
-
 ## 🛠️ Tech Stack
 
 - **Language:** Python 3.10+, standard library only (`csv`, `sqlite3`, `pathlib`) for the core ingestion/analysis pipeline; `requests` and `matplotlib` additionally for the nice-to-have features; `streamlit` for the dashboard.
@@ -340,4 +386,8 @@ Siegried Camus — BeCode: AI & Data Science Bootcamp.
 
 ## ✅ Conclusion
 
-The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every major IC/S/EC route in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions (live ingestion, on-time leaderboard, index optimization) were implemented and validated with real output rather than left as stubs. The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here.
+The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every major IC/S/EC route in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions (live ingestion, on-time leaderboard, index optimization) were implemented and validated with real output rather than left as stubs, and a Streamlit dashboard was added on top to give a live operational view of Bruxelles-Central.
+
+The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here. One item remains genuinely open rather than closed: a later diagnostic run of `src/check_accessibility_fields.py` (logged in section 5) returned a `bikes_allowed` distribution inconsistent with the previously verified 91.28%/8.72% split, and that discrepancy needs to be re-run and confirmed before it's treated as settled — flagged here deliberately rather than quietly reconciled, in keeping with how the rest of this project's real problems were documented as they were found.
+
+Finally, the project was extended with a Streamlit operational dashboard that transforms the SQL analyses into interactive visualizations, making the results easier to explore and validate without writing SQL queries manually.
