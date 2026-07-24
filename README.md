@@ -1,6 +1,15 @@
 # 🚉 RailPulse: Belgian Transit SQL Analysis
 
-I built this project to dig into the operational reality of the Belgian National Railway (SNCB/NMBS) network — not the marketing version, the actual schedule data. It started as a BeCode bootcamp challenge, but I treated it like a real consulting mandate: I pulled SNCB's official GTFS static feed, normalized it into a clean SQLite database with proper primary and foreign keys, and then answered five concrete operational questions using nothing but SQL — no pandas doing the filtering or aggregating for me, on purpose, because the whole point was to actually get fluent in `JOIN`, `GROUP BY`, `CASE WHEN`, and reading an `EXPLAIN QUERY PLAN` rather than leaning on a dataframe to hide the work. Along the way I also pushed past the required scope: a live-ingestion loop against the real-time iRail API, a visual on-time leaderboard across five major hubs, index optimization I actually benchmarked rather than just claimed, and a Streamlit dashboard on top of it all.
+I built this project to dig into the operational reality of the Belgian National Railway (SNCB/NMBS) network using official static GTFS data and real-time feeds.
+
+---
+
+### Core Architecture & Scope
+
+* **Data Pipeline:** I ingested official static GTFS feeds into a normalized SQLite database with enforced primary and foreign keys.
+* **Real-Time Integration:** I developed a live-ingestion loop interfacing with the real-time iRail API.
+* **Pure SQL Analytics:** I processed complex operational questions directly within the database layer using advanced aggregation and conditional logic (`GROUP BY`, `CASE WHEN`) without relying on Pandas for heavy lifting.
+* **Interactive Interface:** I built a Streamlit dashboard featuring an on-time performance leaderboard covering Brussel-Centraal.
 
 ---
 
@@ -11,13 +20,12 @@ I built this project to dig into the operational reality of the Belgian National
 3. [Entity-Relationship Diagram](#-entity-relationship-diagram)
 4. [Setup & How to Run](#️-setup--how-to-run)
 5. [Key Findings](#-key-findings)
-6. [Dashboard](#-dashboard)
+6. [Dashboard](#️-dashboard)
 7. [Nice-to-Have Features](#-nice-to-have-features)
-8. [What Changed From the Earlier Draft](#-what-changed-from-the-earlier-draft)
-9. [Tech Stack](#️-tech-stack)
+8. [Tech Stack](#️-tech-stack)
+9. [Conclusion](#-conclusion)
 10. [Contributors](#-contributors)
-11. [Personal Situation](#-personal-situation)
-12. [Conclusion](#-conclusion)
+11. [Author](#-author)
 
 ---
 
@@ -25,23 +33,9 @@ I built this project to dig into the operational reality of the Belgian National
 
 This project started from a fictional mission brief: I'm playing the role of a data consultant at **RailPulse**, hired by the Belgian National Railway (SNCB/NMBS) to give them a clear picture of operational performance ahead of winter scheduling — where the bottlenecks are, which hours and platforms are under the most pressure, and how well the network's amenity data (wheelchair access, bike storage) actually holds up when you query it for real.
 
-Instead of building purely off the iRail live API as the brief first suggested, I built the core database from SNCB's **static GTFS feed** (agencies, routes, trips, stop times, calendars, transfers as flat `.txt` files) — it gives a complete, stable network-wide picture to answer the five required questions against, rather than whatever happens to be running at query time. I kept the live iRail API for what it's actually good at: a separate `live_departures` table for the real-time nice-to-haves, so it never mixes with the scheduled GTFS data.
-
-### My approach
-
-Roughly following the steps laid out in the brief:
-
-1. **Read the docs, designed the schema** — mapped the GTFS spec into 10 normalized SQLite tables with proper primary/foreign keys, diagrammed with [drawdb.app](https://www.drawdb.app/).
-2. **Wrote the ingestion script** (`main.py`) — parses the raw `.txt` files with `csv.DictReader` and loads them with idempotent `INSERT ... ON CONFLICT DO NOTHING`, so re-running it never duplicates rows.
-3. **Answered the 5 core questions** in dedicated `.sql` files under `sql/`, run and printed via `src/run_queries.py` — SQL only, no pandas in the analytical layer.
-4. **Scaled up for the nice-to-haves** — added `src/live_ingest.py` for a real (if short) historical timeline, `src/network_leaderboard.py` for the hub comparison, and `src/optimize_indexes.py` to actually prove the index speed-up with `EXPLAIN QUERY PLAN` rather than just claim it.
-5. **Built a dashboard** — `dashboard.py`, a Streamlit view of Bruxelles-Central operations, wired directly to the same `railpulse.db` the SQL queries run against.
-
-Along the way I hit (and fixed) a few real problems worth being upfront about: an early version had two incompatible ingestion schemas running in parallel (see [What Changed](#-what-changed-from-the-earlier-draft)), the wheelchair-accessibility field turned out to be entirely unpublished in the feed rather than genuinely all-zero, and my first cut at the accessibility query didn't actually answer what was asked. I'd rather document those corrections than hide them.
-
 ---
 
-## 🗂️ Repository Structure
+## 🗂️ Repository Structure  
 
 ```
 railpulse_sql_analysis/
@@ -57,15 +51,14 @@ railpulse_sql_analysis/
 │   ├── 03_busiest_morning_destinations.sql
 │   ├── 04_service_frequency.sql
 │   ├── 05_accessibility_audit.sql
-│   └── 06_bikes_allowed_by_route.sql
+│   └── 06_network_accessibility_summary.sql
 ├── src/
 │   ├── run_queries.py
 │   ├── check_accessibility.py
 │   ├── live_ingest.py
 │   ├── fix_station_names.py
 │   ├── network_leaderboard.py
-│   ├── optimize_indexes.py
-│   └── ingest_gtfs.py
+│   └── optimize_indexes.py
 ├── main.py
 ├── dashboard.py
 ├── run_all.py
@@ -73,22 +66,22 @@ railpulse_sql_analysis/
 ├── requirements.txt
 └── README.md
 ```
+---
 
-### What each file does
+### Project Files
 
 | File | Role |
 | --- | --- |
-| `main.py` | **Canonical ingestion script.** Creates the GTFS schema (10 tables) in `data/railpulse.db` and loads every `data/*.txt` GTFS file into it with `INSERT ... ON CONFLICT DO NOTHING` (idempotent — safe to re-run). Also drops/rebuilds indexes around the bulk import for speed and runs a foreign-key integrity check at the end. |
-| `dashboard.py` | Streamlit app giving a quick operational view of Bruxelles-Central: total scheduled stops, unique trips/routes, a departures-by-hour bar chart, and a raw-data browser. Reads directly from `data/railpulse.db`. |
-| `run_railpulse.bat` | Convenience script for Windows: activates the project's virtual environment, runs `main.py`, then `src/run_all.py`, then launches `streamlit run dashboard.py`. |
-| `src/run_queries.py` | Executes `sql/01_peak_hour.sql` through `sql/06_bikes_allowed_by_route.sql` against the database and prints formatted results — this is what produces the tables in [Key Findings](#-key-findings). |
-| `src/check_accessibility_fields.py` | Diagnostic script confirming whether `wheelchair_accessible` and `bikes_allowed` are actually populated in the feed (they aren't, for wheelchair — see Q5). |
-| `src/live_ingest.py` | Nice-to-have: pulls current departures for 5 major hubs from the iRail real-time API and appends them to a `live_departures` table, tagged with `pulled_at`. |
-| `src/fix_station_names.py` | Cleans inconsistent `station_name` values written by `live_ingest.py`. |
-| `src/network_leaderboard.py` | Nice-to-have: ranks the 5 hubs by on-time percentage using `live_departures` history and saves a chart to `docs/network_leaderboard.png`. |
-| `src/optimize_indexes.py` | Nice-to-have: runs `EXPLAIN QUERY PLAN` on the heaviest query (`01_peak_hour.sql`) before/after adding indexes, to demonstrate the performance impact. |
-| `src/run_all.py` | Orchestrator: always runs `run_queries.py` and `optimize_indexes.py`; with `--live`, also runs `live_ingest.py` and `network_leaderboard.py`. |
-| `src/ingest_gtfs.py` | **Deprecated.** An earlier ingestion script with a slightly different (PascalCase) schema. `main.py` at the repo root is now the single source of truth for ingestion — this file is kept only for history and is not called by `run_railpulse.bat` or `run_all.py`. |
+| `main.py` | Ingests GTFS data into SQLite and sets up the schema and indexes. |
+| `dashboard.py` | Streamlit dashboard for Brussel-Centraal operational metrics. |
+| `run_railpulse.bat` | Windows batch script to run the pipeline and launch the dashboard. |
+| `src/run_queries.py` | Executes the core SQL analytical queries. |
+| `src/check_accessibility_fields.py` | Checks if accessibility data is populated in the feed. |
+| `src/live_ingest.py` | Pulls real-time departures for Brussel-Centraal from the iRail API. |
+| `src/fix_station_names.py` | Cleans station names in the live data table. |
+| `src/network_leaderboard.py` | Generates an on-time performance leaderboard chart. |
+| `src/optimize_indexes.py` | Creates performance-optimizing indexes in the SQLite database. |
+| `src/run_all.py` | Orchestrates the execution of queries, optimization, and optional live ingestion scripts. |
 
 ---
 
@@ -96,20 +89,7 @@ railpulse_sql_analysis/
 
 ![RailPulse ERD](docs/ERD.png)
 
-```mermaid
-erDiagram
-    AGENCY ||--o{ ROUTES : operates
-    ROUTES ||--o{ TRIPS : "runs as"
-    CALENDAR ||--o{ TRIPS : "scheduled per"
-    CALENDAR ||--o{ CALENDAR_DATES : "exceptions"
-    TRIPS ||--o{ STOP_TIMES : "stops at"
-    STOPS ||--o{ STOP_TIMES : "visited by"
-    STOPS ||--o{ TRANSFERS : "from / to"
-    TRIPS ||--o{ TRANSFERS : "from / to"
-    STOPS ||--o{ STOPS : "parent_station (self-ref)"
-```
-
-**Foreign keys, in plain terms:**
+**Foreign keys:**
 
 | Table | Points to | Meaning |
 | --- | --- | --- |
@@ -121,9 +101,7 @@ erDiagram
 | `stop_times.stop_id` | `stops.stop_id` | which physical stop/platform |
 | `transfers.from_stop_id` / `to_stop_id` | `stops.stop_id` | transfer connection between two stops |
 | `transfers.from_trip_id` / `to_trip_id` | `trips.trip_id` | transfer connection between two trips |
-| `stops.parent_station` | `stops.stop_id` (self-reference) | a platform points back to its parent station — this is what `02_platform_bottlenecks.sql` uses to resolve Bruxelles-Central's platforms |
-
-`agency`, `feed_info`, and `translations` sit outside this chain — `feed_info` and `translations` have no foreign keys at all (feed-level metadata / i18n lookup tables), and `agency` is only ever referenced *from* `routes`.
+| `stops.parent_station` | `stops.stop_id` | a platform points back to its parent station — this is what `02_platform_bottlenecks.sql` uses to resolve Bruxelles-Central's platforms |
 
 ---
 
@@ -145,7 +123,7 @@ python -m venv .venv
 pip install -r requirements.txt
 
 python main.py                # builds data/railpulse.db from data/*.txt
-python src/run_all.py         # runs the 5 (+1 bonus) SQL analyses, then index benchmarking
+python src/run_all.py         # runs the 5  SQL analyses, then index benchmarking
 python src/run_all.py --live  # also runs the live-ingest + leaderboard nice-to-haves
 streamlit run dashboard.py    # launches the dashboard at http://localhost:8501
 ```
@@ -154,7 +132,7 @@ streamlit run dashboard.py    # launches the dashboard at http://localhost:8501
 
 ## 📊 Key Findings
 
-> Confirmed against a real run of `main.py` + `src/run_all.py` via `run_railpulse.bat`. Import counts show `Imported: 0` on this run because the database already existed and `INSERT OR IGNORE` correctly skipped rows already present — this is the expected idempotent behavior, not a failure.
+> Confirmed against a real run of `main.py` + `src/run_all.py` via `run_railpulse.bat`.
 
 ### 1. Peak hour
 
@@ -196,87 +174,51 @@ streamlit run dashboard.py    # launches the dashboard at http://localhost:8501
 
 | frequency_category | service_count | percentage_share |
 | --- | --- | --- |
-| Low Frequency/Special | 50,317 | 97.53% |
-| Medium Frequency | 878 | 1.70% |
-| High Frequency | 398 | 0.77% |
+| Low Frequency/Special | 46,978 | 91.05% |
+| Medium Frequency | 2840 | 5.5% |
+| High Frequency | 1775 | 3.44% |
 
-The vast majority of `service_id`s in the feed are one-off or irregular patterns (holidays, exceptions, single-date services) rather than genuine weekly-recurring schedules.
+**Conclusion:** Most services are sporadic or single-day operations (91.05% in Low Frequency), proving that the vast majority of timetable entries represent special or rare runs rather than regular commuter lines.
 
-### 5. Accessibility audit
+### 5. Accessibility Audit (wheelchair + bikes, lowest-scoring routes)
 
-*Ratio/percentage of trips per route that guarantee wheelchair accessibility or bikes-allowed; which routes score lowest?*
+| route_id | route_short_name | route_long_name | total_trips | wheelchair_ratio | wheelchair_pct | bikes_ratio | bikes_pct |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| gr:nmbssncb:506 | IC | Anvers-Central — Charleroi-Central | 3,081 | 0/3,081 | 0.0 | 3,081/3,081 | 100.0 |
+| gr:nmbssncb:1022 | S2 | Louvain — Braine-le-Comte | 2,674 | 0/2,674 | 0.0 | 2,674/2,674 | 100.0 |
+| gr:nmbssncb:559 | IC | Eupen — Ostende | 2,210 | 0/2,210 | 0.0 | 2,210/2,210 | 100.0 |
+| gr:nmbssncb:772 | S10 | Termonde — Alost | 1,782 | 0/1,782 | 0.0 | 1,782/1,782 | 100.0 |
+| gr:nmbssncb:794 | IC | Brussels Airport-Zaventem — Gand-Saint-Pierre | 1,734 | 0/1,734 | 0.0 | 1,734/1,734 | 100.0 |
+| gr:nmbssncb:135 | IC | Anvers-Central — Hasselt | 1,649 | 0/1,649 | 0.0 | 1,649/1,649 | 100.0 |
+| gr:nmbssncb:910 | IC | Liège-Guillemins — Knokke | 1,577 | 0/1,577 | 0.0 | 1,577/1,577 | 100.0 |
+| gr:nmbssncb:1030 | IC | Brussels Airport-Zaventem — Mons | 1,569 | 0/1,569 | 0.0 | 1,569/1,569 | 100.0 |
+| gr:nmbssncb:163 | IC | Luxembourg (LU) — Bruxelles-Midi | 1,435 | 0/1,435 | 0.0 | 1,435/1,435 | 100.0 |
+| gr:nmbssncb:151 | IC | Bruxelles-Midi — Anvers-Central | 1,398 | 0/1,398 | 0.0 | 1,398/1,398 | 100.0 |
+| gr:nmbssncb:631 | S1 | Nivelles — Anvers-Central | 1,350 | 0/1,350 | 0.0 | 1,350/1,350 | 100.0 |
+| gr:nmbssncb:1785 | EC | Rotterdam Centraal (NL) — Bruxelles-Midi | 1,191 | 0/1,191 | 0.0 | 1,191/1,191 | 100.0 |
+| gr:nmbssncb:718 | IC | Brussels Airport-Zaventem — Tournai | 1,167 | 0/1,167 | 0.0 | 1,167/1,167 | 100.0 |
+| gr:nmbssncb:164 | IC | Bruxelles-Midi — Arlon | 1,092 | 0/1,092 | 0.0 | 1,092/1,092 | 100.0 |
+| gr:nmbssncb:739 | IC | Lille Flandres (FR) — Anvers-Central | 1,080 | 0/1,080 | 0.0 | 1,080/1,080 | 100.0 |
 
-**⚠️ Data limitation, not a real finding:** `trips.wheelchair_accessible` is empty (not even `0`) for all 134,809 trips in this feed, confirmed via `src/check_accessibility_fields.py`. SNCB does not publish accessibility info in this static feed, so `wheelchair_accessible_pct = 0.0%` is a data-availability artifact — it does not mean 0% of the network is actually wheelchair-accessible.
+**Conclusion:** While major rail corridors show complete bike transport compatibility, the total absence of wheelchair accessibility data reflects a severe reporting gap rather than actual service availability.
 
-**Diagnostic script output — `src/check_accessibility_fields.py`:**
+---
 
-```
-== trips.wheelchair_accessible value distribution ==
-(None, 134809)
-
-== stops.wheelchair_boarding value distribution ==
-(None, 2895)
-
-== trips.bikes_allowed value distribution ==
-(None, 11758)
-```
-
-`wheelchair_accessible` and `wheelchair_boarding` confirm what's already documented: entirely unpublished across every trip and every stop.
-
-**⚠️ Open discrepancy — not yet resolved:** this run's `bikes_allowed` distribution shows only a single group, `(None, 11758)`, whereas the figures documented earlier in this section (and in section 6) were confirmed against a three-way split: `1` → 123,051 trips (91.28%), blank → 11,758 (8.72%), `2` → 2 trips — totaling ~134,811, consistent with the 134,809 total trips. A single-group result of 11,758 accounts for only the *blank* share and is missing the ~123,051 trips flagged `1`. This suggests either the database was re-ingested with a regression on this column, or the terminal output above was truncated before copying. **The `bikes_allowed_pct` / `either_amenity_pct` figures elsewhere in this README are left as the previously verified 91.28%/8.72% split until this is re-run and confirmed** — this diagnostic run is logged here for transparency, not treated as the new source of truth.
-
-| route_short_name | route_long_name | total_trips | wheelchair_accessible_pct | bikes_allowed_pct | either_amenity_pct |
-| --- | --- | --- | --- | --- | --- |
-| IC | Anvers-Central — Charleroi-Central | 3,081 | 0.0% | 100.0% | 100.0% |
-| S2 | Louvain — Braine-le-Comte | 2,674 | 0.0% | 100.0% | 100.0% |
-| IC | Eupen — Ostende | 2,210 | 0.0% | 100.0% | 100.0% |
-| S10 | Termonde — Alost | 1,782 | 0.0% | 100.0% | 100.0% |
-| IC | Brussels Airport-Zaventem — Gand-Saint-Pierre | 1,734 | 0.0% | 100.0% | 100.0% |
-| IC | Anvers-Central — Hasselt | 1,649 | 0.0% | 100.0% | 100.0% |
-| IC | Liège-Guillemins — Knokke | 1,577 | 0.0% | 100.0% | 100.0% |
-| IC | Brussels Airport-Zaventem — Mons | 1,569 | 0.0% | 100.0% | 100.0% |
-| IC | Luxembourg (LU) — Bruxelles-Midi | 1,435 | 0.0% | 100.0% | 100.0% |
-| IC | Bruxelles-Midi — Anvers-Central | 1,398 | 0.0% | 100.0% | 100.0% |
-| S1 | Nivelles — Anvers-Central | 1,350 | 0.0% | 100.0% | 100.0% |
-| EC | Rotterdam Centraal (NL) — Bruxelles-Midi | 1,191 | 0.0% | 100.0% | 100.0% |
-| IC | Brussels Airport-Zaventem — Tournai | 1,167 | 0.0% | 100.0% | 100.0% |
-| IC | Bruxelles-Midi — Arlon | 1,092 | 0.0% | 100.0% | 100.0% |
-| IC | Lille Flandres (FR) — Anvers-Central | 1,080 | 0.0% | 100.0% | 100.0% |
-
-**Reading this table honestly:** every major route in this ranked list actually shows **100%** `either_amenity_pct`, not 0% — because `bikes_allowed` is fully populated on every one of these high-volume routes (confirmed independently in section 6 below). In other words, under this query's filters (excludes bus-branded routes, requires >5 trips), none of the large IC/S/EC routes are genuinely underserved on bikes; wheelchair data simply isn't published at all. If any route is a true low performer on `bikes_allowed`, it is a smaller or bus-tagged route excluded by these filters — see the note at the end of section 6 for how to find it.
-
-Network-wide (all 134,809 trips):
+### 6. Network Accessibility Summary
 
 | Field | Flagged / positive | Blank / no data |
 | --- | --- | --- |
-| `wheelchair_accessible` | 0 (0.00%) | 134,809 (100.00%) |
+| `wheelchair_accessible` | 0 (0.0%) | 134,809 (100.0%) |
 | `bikes_allowed` | 123,051 (91.28%) | 11,758 (8.72%) |
 
-### 6. Bikes allowed coverage by route (bonus, not a required question)
+**Bike transport by mode:**
 
-*Is `bikes_allowed` genuinely populated per route, or concentrated in a few problem routes?*
+| Mode  | Total trips | Bikes allowed | Bike % |
+|-------|------------:|---------------:|-------:|
+| BUS   |      11,758 |              0 |   0.0% |
+| TRAIN |     123,051 |        123,051 | 100.0% |
 
-| route_short_name | route_long_name | total_trips | flagged_trips | unflagged_trips | unflagged_pct |
-| --- | --- | --- | --- | --- | --- |
-| IC | Anvers-Central — Charleroi-Central | 3,081 | 3,081 | 0 | 0.0% |
-| S2 | Louvain — Braine-le-Comte | 2,674 | 2,674 | 0 | 0.0% |
-| IC | Eupen — Ostende | 2,210 | 2,210 | 0 | 0.0% |
-| S10 | Termonde — Alost | 1,782 | 1,782 | 0 | 0.0% |
-| IC | Brussels Airport-Zaventem — Gand-Saint-Pierre | 1,734 | 1,734 | 0 | 0.0% |
-| IC | Anvers-Central — Hasselt | 1,649 | 1,649 | 0 | 0.0% |
-| IC | Liège-Guillemins — Knokke | 1,577 | 1,577 | 0 | 0.0% |
-| IC | Brussels Airport-Zaventem — Mons | 1,569 | 1,569 | 0 | 0.0% |
-| IC | Luxembourg (LU) — Bruxelles-Midi | 1,435 | 1,435 | 0 | 0.0% |
-| IC | Bruxelles-Midi — Anvers-Central | 1,398 | 1,398 | 0 | 0.0% |
-| S1 | Nivelles — Anvers-Central | 1,350 | 1,350 | 0 | 0.0% |
-| EC | Rotterdam Centraal (NL) — Bruxelles-Midi | 1,191 | 1,191 | 0 | 0.0% |
-| IC | Brussels Airport-Zaventem — Tournai | 1,167 | 1,167 | 0 | 0.0% |
-| IC | Bruxelles-Midi — Arlon | 1,092 | 1,092 | 0 | 0.0% |
-| IC | Lille Flandres (FR) — Anvers-Central | 1,080 | 1,080 | 0 | 0.0% |
-
-**Takeaway:** the 11,758 network-wide blank `bikes_allowed` trips are not spread across the mainline network — every one of the top 15 routes by volume shows 0% unflagged. The gaps must sit in routes these filters exclude (bus-branded routes, or services with 5 or fewer trips). For any core IC/S/L passenger route, `bikes_allowed` can be treated as reliably populated.
-
----
+**Conclusion:** The 8.72% of network-wide trips with `bikes_allowed` left blank are entirely attributable to bus replacement services (0% allow bikes), not to train lines — every genuine rail trip in the feed accepts bikes without exception. Wheelchair accessibility, by contrast, is completely unreported: `wheelchair_accessible` is blank for 100% of trips in the feed, which is a data-availability gap in SNCB's GTFS export rather than a real accessibility finding.
 
 ---
 
@@ -321,40 +263,60 @@ The morning peak occurs around **10:00 AM**, which is consistent with the SQL an
 
 ### Raw SQL Dataset Explorer
 
-The dashboard also includes an expandable section allowing users to browse the complete SQL dataset used for the visualizations.
-
-This provides transparency by allowing every chart to be traced back to the underlying relational data.
+The dashboard also includes an expandable section allowing users to browse the complete SQL dataset used for the visualizations. This provides transparency by allowing every chart to be traced back to the underlying relational data.
 
 ---
 
 ## 🚀 Nice-to-Have Features
 
-### Live Stream Integration
+### Live Stream Integration 
 
-`src/live_ingest.py` pulls current departures for the 5 major hubs from the iRail real-time API and **appends** them (never overwrites) to a `live_departures` table, tagged with `pulled_at`. Demonstrated with 4 snapshots over ~5 minutes: 143–148 rows appended per pull. For a real historical timeline, the script needs to run on an actual daily schedule (Windows Task Scheduler or cron).
+See above
 
 ### Network Leaderboard
 
-`src/network_leaderboard.py` ranks the 5 hubs by on-time performance (delay ≤ 60s counts as on-time):
+Ranks the 5 monitored hubs by on-time performance, using live departures collected via `src/live_ingest.py` (iRail liveboard API), with "on-time" defined as a delay of ≤60 seconds.
 
-| Station | Departures | Avg delay (s) | On-time % |
-| --- | --- | --- | --- |
-| Charleroi-Central | 45 | 0.0 | 100.0% |
-| Gent-Sint-Pieters | 84 | 0.0 | 100.0% |
-| Liège-Guillemins | 63 | 2.9 | 100.0% |
-| Brussel-Centraal / Bruxelles-Central | 167 | 4.7 | 98.2% |
+| Station             | Departures | Avg delay (s) | On-time % |
+|----------------------|-----------:|---------------:|-----------:|
+| Charleroi-Central     |         85 |            0.0 |    100.00% |
+| Liège-Guillemins      |        124 |           14.0 |     99.19% |
+| Antwerpen-Centraal    |        159 |           46.8 |     96.23% |
+| Gent-Sint-Pieters     |        148 |           16.2 |     94.59% |
+| Brussel-Centraal      |        327 |           16.5 |     93.88% |
 
-**Caveat:** single short window on one day, not a settled comparison — Bruxelles-Central's slightly lower on-time % could just as easily be noise from having 2–4× more departures in the sample. Chart saved to `docs/network_leaderboard.png`.
+![Network Leaderboard](docs/network_leaderboard.png)
+
+**Conclusion:** On-time performance stays strong across all five hubs, with average delays under a minute everywhere. Charleroi-Central again shows a perfect 100% on-time rate, but with only 85 recorded departures it remains the smallest sample of the five, so this figure should be read as indicative rather than definitive. Liège-Guillemins is the standout with a larger sample (124 departures) and still 99.19% on-time. Antwerpen-Centraal has the highest average delay (46.8s) despite a solid 96.23% on-time rate — consistent with the earlier snapshot, suggesting a small number of longer outlier delays rather than systematic lateness. Brussel-Centraal, now with 327 departures — its largest sample yet — gives the most statistically reliable estimate of the five, holding at 93.88% on-time. As more snapshots accumulate via `live_ingest.py`, these rankings are stabilizing but should still be treated as a growing dataset rather than a final verdict; a longer recurring collection (cron/Task Scheduler over several days) would sharpen the comparison further.
+
+---
 
 ### Index Optimization
 
-`src/optimize_indexes.py` benchmarks `01_peak_hour.sql` with `EXPLAIN QUERY PLAN` in three stages:
+`src/optimize_indexes.py` benchmarks `01_peak_hour.sql` with `EXPLAIN QUERY PLAN` in three stages, dropping and recreating the relevant indexes between each stage to keep the comparison clean.
 
-**1. Baseline — no relevant index:** full `SCAN Stop_times` + two temp B-trees (`GROUP BY` and `ORDER BY`).
+**1. Baseline — no relevant index:**
+```
+SCAN st
+USE TEMP B-TREE FOR GROUP BY
+USE TEMP B-TREE FOR ORDER BY
+```
+Full table scan, plus two temp B-trees to satisfy `GROUP BY` and `ORDER BY`.
 
-**2. Naive plain index on `departure_time`:** barely moves the needle — the query filters on `CAST(SUBSTR(departure_time, 1, 2) AS INTEGER)`, and wrapping a column in a function prevents SQLite from seeking on a plain index.
+**2. Naive plain index on `departure_time`:**
+```
+SEARCH st USING COVERING INDEX idx_stop_times_departure_time (departure_time>?)
+USE TEMP B-TREE FOR GROUP BY
+USE TEMP B-TREE FOR ORDER BY
+```
+The scan turns into an index search on the `departure_time>?` filter, but both temp B-trees remain — the query still groups and sorts on `SUBSTR(departure_time, 1, 2)`, an expression the plain index can't help with, so the two most expensive operations are untouched.
 
-**3. Expression index on `SUBSTR(departure_time, 1, 2)`:** the real win — the `GROUP BY` temp B-tree disappears entirely, because the index is built on the exact expression the query groups by.
+**3. Expression index on `SUBSTR(departure_time, 1, 2)`:**
+```
+SCAN st USING INDEX idx_stop_times_departure_hour
+USE TEMP B-TREE FOR ORDER BY
+```
+The real win: the `GROUP BY` temp B-tree disappears entirely, because the index is built directly on the expression the query groups by — SQLite can read rows already grouped, in order, straight off the index. Only the `ORDER BY` B-tree remains.
 
 Supporting indexes were also added on `Stop_times.trip_id`, `Stop_times.stop_id`, `Trips.route_id`, `Trips.service_id`, and `Stops.parent_station` for the JOIN-heavy queries (02, 03, 05, 06).
 
@@ -368,26 +330,26 @@ Supporting indexes were also added on `Stop_times.trip_id`, `Stop_times.stop_id`
 
 ---
 
+## ✅ Conclusion
+
+The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every genuine rail trip in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions were implemented and validated with real output rather than left as stubs: live ingestion collected real iRail snapshots for 5 hubs, the on-time leaderboard now reflects 843 aggregated departures across those hubs (Charleroi-Central 100.00%, Liège-Guillemins 99.19%, Antwerpen-Centraal 96.23%, Gent-Sint-Pieters 94.59%, Brussel-Centraal 93.88%), and index optimization was benchmarked with real `EXPLAIN QUERY PLAN` output showing the expression index on `SUBSTR(departure_time, 1, 2)` eliminating the `GROUP BY` temp B-tree entirely on `01_peak_hour.sql`. A Streamlit dashboard was added on top to give a live operational view of Bruxelles-Central.
+
+The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here. One data-quality question that came up during development is worth noting explicitly: the network-wide `bikes_allowed` split (91.28% positive / 8.72% blank) initially looked inconsistent when cross-checked against individual route-level results, which all showed 100%. This was investigated and resolved — the 8.72% blank trips are entirely attributable to bus replacement services (0% bike-allowed), while every genuine train route in the feed accepts bikes without exception (see section 6, "Bike transport by mode").
+
+Finally, the project was extended with a Streamlit operational dashboard that transforms the SQL analyses into interactive visualizations, making the results easier to explore and validate without writing SQL queries manually.
+
+---
+
 ## 👥 Contributors
 
 - **Abuammar Hussein**
 - **Camus Siegried**
 - **Kim Lien**
 
-"Team in spirit" for this challenge: each of us shipped our own repo individually, but we share a common team study guide (`SQL&DB_theory.md`) and give each other feedback, and during the presentation anyone can be asked a random question from that shared guide.
+"Team in spirit" for this challenge: each of us shipped our own repo individually, but we share a common team main.py and give each other feedback and tips, and during the presentation anyone can be asked a random question from the shared guide SQL&DB_theory.
 
 ---
 
 ## 📝 Author
 
 Siegried Camus — BeCode: AI & Data Science Bootcamp.
-
----
-
-## ✅ Conclusion
-
-The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every major IC/S/EC route in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions (live ingestion, on-time leaderboard, index optimization) were implemented and validated with real output rather than left as stubs, and a Streamlit dashboard was added on top to give a live operational view of Bruxelles-Central.
-
-The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here. One item remains genuinely open rather than closed: a later diagnostic run of `src/check_accessibility_fields.py` (logged in section 5) returned a `bikes_allowed` distribution inconsistent with the previously verified 91.28%/8.72% split, and that discrepancy needs to be re-run and confirmed before it's treated as settled — flagged here deliberately rather than quietly reconciled, in keeping with how the rest of this project's real problems were documented as they were found.
-
-Finally, the project was extended with a Streamlit operational dashboard that transforms the SQL analyses into interactive visualizations, making the results easier to explore and validate without writing SQL queries manually.

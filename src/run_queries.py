@@ -1,5 +1,3 @@
-# run_queries.py
-
 import sqlite3
 from pathlib import Path
 
@@ -17,7 +15,7 @@ def run_analysis():
         ("3. Busiest Morning Destinations", SQL_DIR / "03_busiest_morning_destinations.sql"),
         ("4. Service Frequency Classification (% per category)", SQL_DIR / "04_service_frequency.sql"),
         ("5. Accessibility Audit (wheelchair + bikes, lowest-scoring routes)", SQL_DIR / "05_accessibility_audit.sql"),
-        ("6. Bikes Allowed Coverage by Route (bonus)", SQL_DIR / "06_bikes_allowed_by_route.sql"),
+        ("6. Network Accessibility Summary", SQL_DIR / "06_network_accessibility_summary.sql"),
     ]
 
     for title, filepath in query_files:
@@ -32,7 +30,12 @@ def run_analysis():
         with open(filepath, "r", encoding="utf-8") as f:
             query = f.read()
         
-        cursor.execute(query)
+        try:
+            cursor.execute(query)
+        except sqlite3.OperationalError as e:
+            print(f"SQL Error: {e}")
+            continue
+
         rows = cursor.fetchall()
         
         if not rows:

@@ -10,11 +10,19 @@ DB_PATH = BASE_DIR / "data" / "railpulse.db"
 DOCS_DIR = BASE_DIR / "docs"
 OUTPUT_PATH = DOCS_DIR / "network_leaderboard.png"
 
-ON_TIME_THRESHOLD_SECONDS = 60 
+ON_TIME_THRESHOLD_SECONDS = 60
 
 
 def fetch_leaderboard(connection: sqlite3.Connection):
     cursor = connection.cursor()
+
+    # Guard against the table not existing yet (live_ingest.py hasn't run)
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='live_departures';"
+    )
+    if cursor.fetchone() is None:
+        return []
+
     cursor.execute(
         """
         SELECT
