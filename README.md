@@ -368,6 +368,16 @@ Supporting indexes were also added on `Stop_times.trip_id`, `Stop_times.stop_id`
 
 ---
 
+## ✅ Conclusion
+
+The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every major IC/S/EC route in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions (live ingestion, on-time leaderboard, index optimization) were implemented and validated with real output rather than left as stubs, and a Streamlit dashboard was added on top to give a live operational view of Bruxelles-Central.
+
+The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here. One item remains genuinely open rather than closed: a later diagnostic run of `src/check_accessibility_fields.py` (logged in section 5) returned a `bikes_allowed` distribution inconsistent with the previously verified 91.28%/8.72% split, and that discrepancy needs to be re-run and confirmed before it's treated as settled — flagged here deliberately rather than quietly reconciled, in keeping with how the rest of this project's real problems were documented as they were found.
+
+Finally, the project was extended with a Streamlit operational dashboard that transforms the SQL analyses into interactive visualizations, making the results easier to explore and validate without writing SQL queries manually.
+
+---
+
 ## 👥 Contributors
 
 - **Abuammar Hussein**
@@ -381,13 +391,3 @@ Supporting indexes were also added on `Stop_times.trip_id`, `Stop_times.stop_id`
 ## 📝 Author
 
 Siegried Camus — BeCode: AI & Data Science Bootcamp.
-
----
-
-## ✅ Conclusion
-
-The five required questions are answered end-to-end with plain SQL against a normalized SQLite database built from SNCB's official GTFS static feed: the network-wide peak is **10 AM**, **Platform 3** is Bruxelles-Central's busiest, **Anvers-Central** is the top morning destination, **97.5%** of services are irregular/low-frequency rather than daily patterns, and — once the wheelchair data-availability gap is accounted for — every major IC/S/EC route in the feed has full `bikes_allowed` coverage. All three nice-to-have extensions (live ingestion, on-time leaderboard, index optimization) were implemented and validated with real output rather than left as stubs, and a Streamlit dashboard was added on top to give a live operational view of Bruxelles-Central.
-
-The main structural change from the initial draft was consolidating ingestion into a single canonical script (`main.py`) after discovering two competing schemas were in play, which is also what made the numbered SQL queries reliable to run and document here. One item remains genuinely open rather than closed: a later diagnostic run of `src/check_accessibility_fields.py` (logged in section 5) returned a `bikes_allowed` distribution inconsistent with the previously verified 91.28%/8.72% split, and that discrepancy needs to be re-run and confirmed before it's treated as settled — flagged here deliberately rather than quietly reconciled, in keeping with how the rest of this project's real problems were documented as they were found.
-
-Finally, the project was extended with a Streamlit operational dashboard that transforms the SQL analyses into interactive visualizations, making the results easier to explore and validate without writing SQL queries manually.
