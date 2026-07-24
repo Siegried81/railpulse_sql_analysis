@@ -64,7 +64,7 @@ def main() -> None:
 
     DOCS_DIR.mkdir(exist_ok=True)
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.bar(stations, on_time_pcts, color="#2E7D32")
+    bars = ax.bar(stations, on_time_pcts, color="#4F8191")
     ax.set_ylabel("On-time departures (%)")
     ax.set_title(f"RailPulse Network Leaderboard — on-time within {ON_TIME_THRESHOLD_SECONDS}s")
     ax.set_ylim(0, 108)
