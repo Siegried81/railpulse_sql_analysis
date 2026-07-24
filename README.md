@@ -324,8 +324,8 @@ This was a 4-day BeCode bootcamp learning challenge, deadline **24/07/2026, 5:00
 | --- | --- |
 | Day 1 | Read the SNCB GTFS documentation, designed the normalized schema and ERD, set up the repository and ingestion pipeline. |
 | Day 2 | Built and validated `main.py` ingestion against the real GTFS static feed, resolved schema conflicts, wrote the first analytical SQL queries. |
-| Day 3 | Finalized all 5 core analytical queries, added the nice-to-have live ingestion loop and on-time leaderboard, investigated and resolved data-quality questions (e.g. the `bikes_allowed` bus-vs-train split). |
-| Day 4 | Built the Streamlit dashboard, polished the README, prepared for the 5-minute team feedback presentation and Q&A on the shared SQL & DB theory guide. |
+| Day 3 | Finalized all 5 core analytical queries, built the Streamlit dashboard, investigated and resolved data-quality questions (e.g. the `bikes_allowed` bus-vs-train split). |
+| Day 4 | Added the nice-to-have live ingestion loop and on-time leaderboard, polished the README, prepared for the 5-minute team feedback presentation and Q&A on the SQL & DB theory guide. |
 
 ---
 
