@@ -11,8 +11,8 @@ service_classification AS (
         service_id,
         total_trips,
         CASE 
-            WHEN total_trips > 50 THEN 'High Frequency'
-            WHEN total_trips BETWEEN 10 AND 50 THEN 'Medium Frequency'
+            WHEN total_trips > 5 THEN 'High Frequency'
+            WHEN total_trips BETWEEN 2 AND 4 THEN 'Medium Frequency'
             ELSE 'Low Frequency/Special'
         END AS frequency_category
     FROM service_trip_counts
